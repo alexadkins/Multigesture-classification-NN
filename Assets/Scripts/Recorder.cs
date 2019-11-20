@@ -22,11 +22,18 @@ public class Recorder : MonoBehaviour
 
     public string filename;
     List<List<float>> playBackData = new List<List<float>>();
-    public enum Purpose { Record, Playback };
+    List<List<float>> theta1 = new List<List<float>>();
+    List<List<float>> theta2 = new List<List<float>>();
+
+    public enum Purpose { Record, Playback, Predict };
+    public enum Handedness { Left, Right };
     public Purpose choice = Purpose.Record;
-    int frameCount = 0;
-    int playBackCount = 0;
+    public Handedness handChoice = Handedness.Left;
+    int frame = 1;
     public GameObject palmRef;
+    bool recording = false;
+    int recordCount = 0;
+    int prevPrediction = -1;
 
     void Start()
     {
@@ -55,87 +62,125 @@ public class Recorder : MonoBehaviour
         csvRows.Add(header);
 
         if(choice == Purpose.Playback)
-        {
-            LoadFile();
-        }
+            LoadFile("./CSVOutput/" + filename + ".csv", playBackData);
+
+        //if (choice == Purpose.Predict)
+        //{
+            LoadFile("Assets/Scripts/Theta1.csv", theta1);
+            LoadFile("Assets/Scripts/Theta2.csv", theta2);
+        //}
     }
 
     void Update()
     {
-        if (choice == Purpose.Record)
+        if (choice == Purpose.Record || choice == Purpose.Predict)
         {
             if (controller.IsConnected)
             {
                 Frame frame = controller.Frame();
-                if (frame.Hands.Count > 0)
+
+                if (recording) // 1 second, auto stop
+                {
+                    if (csvRows.Count == 61)
+                        Log();
+                }
+
+                if (frame.Hands.Count > 0)  // if there are any hands being tracked
                 {
                     List<Hand> hands = frame.Hands;
                     for (int i = 0; i < hands.Count; ++i)
                         RecordHands(hands[i]);
                 }
-                /*
-                if(record && frameCount == 120) // 2 seconds, auto stop
-                {
-                    Log();
-                    UnityEditor.EditorApplication.isPlaying = false;
-                }*/
 
-                KeyListener();
-                frameCount++;
+                //if (recording && Input.GetKeyDown(KeyCode.Space))
+                    //Log();
             }
         }
 
         else
-        {
             Visualize();
-        }
+    }
+
+    public void StartRecording()
+    {
+        if (choice == Purpose.Record)
+            recording = true;
     }
 
     void RecordHands(Hand hand)
     {
         List<Finger> fingers = hand.Fingers;
 
-        if (hand.IsLeft)
+        // create leap hand basis matrix
+        Vector3 palmPos = hand.PalmPosition.ToVector3();
+        palmPos = new Vector3(palmPos.x, palmPos.y, -palmPos.z) / 1000f + leapOrigin.position;
+        Vector3 palmNormal = hand.PalmNormal.ToVector3();
+        palmNormal = new Vector3(palmNormal.x, palmNormal.y, -palmNormal.z);
+        Vector3 palmDirection = hand.Direction.ToVector3();
+        palmDirection = new Vector3(palmDirection.x, palmDirection.y, -palmDirection.z);
+        Vector3 zBasis = hand.IsLeft ? Vector3.Cross(palmDirection, palmNormal) : Vector3.Cross(palmNormal, palmDirection);    
+
+        Matrix3x3 handBasis = new Matrix3x3(palmNormal, palmDirection, zBasis);
+
+        // draw leap hand basis (debug)
+        Debug.DrawLine(palmPos, palmPos + 0.1f * palmNormal, Color.red, 0.01f, false);
+        Debug.DrawLine(palmPos, palmPos + 0.1f * palmDirection, Color.blue, 0.01f, false);
+        Debug.DrawLine(palmPos, palmPos + 0.1f * zBasis, Color.white, 0.01f, false);
+
+        // create new basis matrix
+        Vector3 b1 = -palmRef.transform.right;
+        Vector3 b2 = -palmRef.transform.forward;
+        Vector3 b3 = Vector3.Cross(b2, b1);
+        Matrix3x3 newBasis = new Matrix3x3(b3, b1, b2);
+
+        // draw new hand basis (debug)
+        Debug.DrawLine(palmRef.transform.position, palmRef.transform.position + 0.1f * b3, Color.red, 0.01f, false); // normal
+        Debug.DrawLine(palmRef.transform.position, palmRef.transform.position + 0.1f * b1, Color.blue, 0.01f, false); // direction
+        Debug.DrawLine(palmRef.transform.position, palmRef.transform.position + 0.1f * b2, Color.white, 0.01f, false); // right
+
+        Quaternion q1 = palmRef.transform.rotation;
+        Quaternion q2 = testFingers[0][0].transform.rotation;
+
+        bool isRecordedHand = (hand.IsLeft && handChoice == Handedness.Left) || (hand.IsRight && handChoice == Handedness.Right);
+        if (isRecordedHand)
         {
-            // create leap hand basis matrix
-            Vector3 palmPos = hand.PalmPosition.ToVector3();
-            palmPos = new Vector3(palmPos.x, palmPos.y, -palmPos.z) / 1000f + leapOrigin.position;
-            Vector3 palmNormal = hand.PalmNormal.ToVector3();
-            palmNormal = new Vector3(palmNormal.x, palmNormal.y, -palmNormal.z);
-            Vector3 palmDirection = hand.Direction.ToVector3();
-            palmDirection = new Vector3(palmDirection.x, palmDirection.y, -palmDirection.z);
-            Vector3 zBasis = Vector3.Cross(palmDirection, palmNormal);
-            Matrix3x3 handBasis = new Matrix3x3(palmNormal, palmDirection, zBasis);
-
-            // draw leap hand basis (debug)
-            Debug.DrawLine(palmPos, palmPos + 0.1f * palmNormal, Color.red, 0.01f, false);
-            Debug.DrawLine(palmPos, palmPos + 0.1f * palmDirection, Color.blue, 0.01f, false);
-            Debug.DrawLine(palmPos, palmPos + 0.1f * zBasis, Color.white, 0.01f, false);
-
-            // create new basis matrix
-            Vector3 b1 = -palmRef.transform.right;
-            Vector3 b2 = -palmRef.transform.forward;
-            Vector3 b3 = Vector3.Cross(b2, b1);
-            Matrix3x3 newBasis = new Matrix3x3(b3, b1, b2);
-
-            // draw new hand basis (debug)
-            Debug.DrawLine(palmRef.transform.position, palmRef.transform.position + 0.1f * b3, Color.red, 0.01f, false); // normal
-            Debug.DrawLine(palmRef.transform.position, palmRef.transform.position + 0.1f * b1, Color.blue, 0.01f, false); // direction
-            Debug.DrawLine(palmRef.transform.position, palmRef.transform.position + 0.1f * b2, Color.white, 0.01f, false); // right
-
             csvRow = new List<string>(new string[header.Count]);    // initialize empty row with capacity = header.Count
+            List<float> X = new List<float>();  // for collecting features
             int j = 0;
 
             // assume order THUMB, INDEX, MIDDLE, PINKY
             for (int i = 0; i < fingers.Count; ++i)
-                RecordFinger(handBasis, newBasis, fingers[i], testFingers[i], ref j);
+                RecordFinger(handBasis, newBasis, fingers[i], testFingers[i], ref j, ref X);
 
-            if (choice == Purpose.Record)
+            if (recording)
                 csvRows.Add(csvRow);
+
+            if (choice == Purpose.Predict)
+            {
+                List<float> predictionList = Model.NNPredict(theta1, theta2, X);
+                float max = float.NegativeInfinity;
+                int prediction = 0;
+
+                // index of highest probablity
+                for (int i = 0; i < predictionList.Count; ++i)
+                {
+                    if (predictionList[i] > max)
+                    {
+                        max = predictionList[i];
+                        prediction = i;
+                    }
+                }
+
+                if (prediction != prevPrediction)
+                {
+                    prevPrediction = prediction;
+                    print(Prediction());
+                }
+            }
         }
     }
 
-    void RecordFinger(Matrix3x3 handBasis, Matrix3x3 newBasis, Finger finger, List<Transform> joints, ref int listStartIndex)
+    void RecordFinger(Matrix3x3 handBasis, Matrix3x3 newBasis, Finger finger, List<Transform> joints, ref int listStartIndex, ref List<float> X)
     {
         for (int i = 0; i < joints.Count; ++i)
         {
@@ -153,7 +198,7 @@ public class Recorder : MonoBehaviour
 
             Vector3 fingerPos = finger.bones[i].Center.ToVector3();
             fingerPos = new Vector3(fingerPos.x, fingerPos.y, -fingerPos.z) / 1000f + leapOrigin.position;
-            Vector3 fingerX = Vector3.Cross(fingerDir, fingerNormal);
+            Vector3 fingerX = handChoice == Handedness.Left ? Vector3.Cross(fingerDir, fingerNormal) : Vector3.Cross(fingerNormal, fingerDir);
 
             Debug.DrawLine(fingerPos, fingerPos + 0.01f * fingerNormal, Color.red, 0.01f, false);
             Debug.DrawLine(fingerPos, fingerPos + 0.01f * fingerDir, Color.blue, 0.01f, false);
@@ -168,63 +213,53 @@ public class Recorder : MonoBehaviour
 
             //Vector3 eulers = joints[i].transform.rotation.eulerAngles;
             Quaternion rotation = joints[i].transform.rotation;
-            csvRow[listStartIndex++] = rotation.x.ToString();
-            csvRow[listStartIndex++] = rotation.y.ToString();
-            csvRow[listStartIndex++] = rotation.z.ToString();
-            csvRow[listStartIndex++] = rotation.w.ToString();
+
+            if (recording)
+            {
+                csvRow[listStartIndex++] = rotation.x.ToString();
+                csvRow[listStartIndex++] = rotation.y.ToString();
+                csvRow[listStartIndex++] = rotation.z.ToString();
+                csvRow[listStartIndex++] = rotation.w.ToString();
+            }
+
+            if (choice == Purpose.Predict)
+            {
+                X.Add(rotation.x);
+                X.Add(rotation.y);
+                X.Add(rotation.z);
+                X.Add(rotation.w);
+            }
         }
     }
 
-    void KeyListener()
-    {
-        if(Input.GetKeyDown(KeyCode.Space))
-        {
-            Log();
-            UnityEditor.EditorApplication.isPlaying = false;
-        }
-    }
 
     void Visualize()
     {
-        int j = 0;
-        for(int i = 0; i < testThumb.Count; ++i)
+        int k = 0;
+        for(int i = 0; i < testFingers.Count; ++i)
         {
-            Quaternion q = new Quaternion(playBackData[playBackCount][j++], playBackData[playBackCount][j++], playBackData[playBackCount][j++], playBackData[playBackCount][j++]);
-            testThumb[i].transform.rotation = q;
+            for(int j = 0; j < testFingers[i].Count; ++j)
+                testFingers[i][j].transform.rotation = new Quaternion(playBackData[frame][k++], playBackData[frame][k++], playBackData[frame][k++], playBackData[frame][k++]);
         }
 
-        for (int i = 0; i < testIndex.Count; ++i)
-        {
-            Quaternion q = new Quaternion(playBackData[playBackCount][j++], playBackData[playBackCount][j++], playBackData[playBackCount][j++], playBackData[playBackCount][j++]);
-            testIndex[i].transform.rotation = q;
-        }
-
-        for (int i = 0; i < testMiddle.Count; ++i)
-        {
-            Quaternion q = new Quaternion(playBackData[playBackCount][j++], playBackData[playBackCount][j++], playBackData[playBackCount][j++], playBackData[playBackCount][j++]);
-            testMiddle[i].transform.rotation = q;
-        }
-
-        for (int i = 0; i < testRing.Count; ++i)
-        {
-            Quaternion q = new Quaternion(playBackData[playBackCount][j++], playBackData[playBackCount][j++], playBackData[playBackCount][j++], playBackData[playBackCount][j++]);
-            testRing[i].transform.rotation = q;
-        }
-
-        for (int i = 0; i < testPinky.Count; ++i)
-        {
-            Quaternion q = new Quaternion(playBackData[playBackCount][j++], playBackData[playBackCount][j++], playBackData[playBackCount][j++], playBackData[playBackCount][j++]);
-            testPinky[i].transform.rotation = q;
-        }
-
-        playBackCount = (playBackCount + 1) % playBackData.Count;
+        frame = (frame + 1) % playBackData.Count;
     }
 
-    void LoadFile()
+    public string Prediction()
     {
-        using (var reader = new StreamReader("./Assets/CSVOutput/" + filename + ".csv"))
+        string name = "none";
+        if (prevPrediction == 0) name = "rock";
+        else if (prevPrediction == 1) name = "paper";
+        else if (prevPrediction == 2) name = "scissors";
+        return name;
+    }
+
+    void LoadFile(string _path, List<List<float>> _variable)
+    {
+        using (var reader = new StreamReader(_path))
         {
             int index = 0;
+            if (choice == Purpose.Predict) index++;
             while (!reader.EndOfStream)
             {
                 var line = reader.ReadLine();
@@ -240,12 +275,18 @@ public class Recorder : MonoBehaviour
                         row.Add(num);
                     }
 
-                    playBackData.Add(row);
+                    _variable.Add(row);
                 }
 
                 index++;
             }
         }
+    }
+
+
+    public bool Recording()
+    {
+        return recording;
     }
 
     void Log()
@@ -269,12 +310,20 @@ public class Recorder : MonoBehaviour
         for (int j = 0; j < length; j++)
             stringBuilder.AppendLine(string.Join(delimiter, output[j]));
 
-        string filePath = "Assets/CSVOutput/" + filename + ".csv";
+        string count = recordCount < 10 ? "0" + recordCount.ToString() : recordCount.ToString();
+        string outputName = filename + count + ".csv";
+        string filePath = "Assets/CSVOutput/" + outputName;
 
         StreamWriter outStream = System.IO.File.CreateText(filePath);
         outStream.WriteLine(stringBuilder);
         outStream.Close();
 
-        Debug.Log("Raw file export completed! " + filename);
+        Debug.Log("Raw file export completed! " + outputName);
+        //UnityEditor.EditorApplication.isPlaying = false;
+
+        recording = false;
+        recordCount++;
+        csvRows.Clear();
+        csvRows.Add(header);
     }
 }

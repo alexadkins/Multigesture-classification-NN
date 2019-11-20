@@ -116,6 +116,34 @@ public class Game : MonoBehaviour
             return "Player 1 Wins!!!";
         if (p1 == "paper" && p2 == "scissors")
             return "Player 2 Wins!!!";
+        if (p1 == "rock" && p2 == "lizard")
+            return "Player 1 Wins!!!";
+        if (p2 == "rock" && p1 == "lizard")
+            return "Player 2 Wins!!!";
+        if (p2 == "rock" && p1 == "spock")
+            return "Player 1 Wins!!!";
+        if (p1 == "rock" && p2 == "spock")
+            return "Player 2 Wins!!!";
+        if (p1 == "lizard" && p2 == "paper")
+            return "Player 1 Wins!!!";
+        if (p2 == "lizard" && p1 == "paper")
+            return "Player 2 Wins!!!";
+        if (p2 == "lizard" && p1 == "scissors")
+            return "Player 1 Wins!!!";
+        if (p1 == "lizard" && p2 == "scissors")
+            return "Player 2 Wins!!!";
+        if (p1 == "lizard" && p2 == "spock")
+            return "Player 1 Wins!!!";
+        if (p2 == "lizard" && p1 == "spock")
+            return "Player 2 Wins!!!";
+        if (p2 == "spock" && p1 == "scissors")
+            return "Player 2 Wins!!!";
+        if (p1 == "spock" && p2 == "scissors")
+            return "Player 1 Wins!!!";
+        if (p1 == "spock" && p2 == "paper")
+            return "Player 2 Wins!!!";
+        if (p2 == "spock" && p1 == "paper")
+            return "Player 1 Wins!!!";
 
         print(p1 + " " + p2);
         return "Draw!!!";
